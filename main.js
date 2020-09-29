@@ -1,5 +1,18 @@
 const defaultSpace = 30; 
 
+const Tools = {
+  BRUSH: 'BRUSH',
+}
+
+const ActionType = {
+  SET_COLOR: 'SET_COLOR',
+  SET_CANVAS_SIZE: 'SET_CANVAS_SIZE',
+  UPDATE_DRAW_COLOR: 'UPDATE_DRAW_COLOR',
+  UPDATE_CELL_SIZE: 'UPDATE_CELL_SIZE',
+  UPDATE_BRUSH_SIZE: 'UPDATE_BRUSH_SIZE',
+  MOVE_MOUSE: 'MOVE_MOUSE',
+};
+
 const defaultState = {
   cellSize: 15,
   cellNumberX: defaultSpace,
@@ -11,19 +24,20 @@ const defaultState = {
       { length: defaultSpace },
       () => 'ffffff'
     )
-  )
+  ),
+  tool: Tools.BRUSH,
+  brushSize: 1,
+  cursorPosition: {
+    x: 0,
+    y: 0,
+  }
 }
-
-const ActionType = {
-  SET_COLOR: 'SET_COLOR',
-  SET_CANVAS_SIZE: 'SET_CANVAS_SIZE',
-  UPDATE_DRAW_COLOR: 'UPDATE_DRAW_COLOR',
-  UPDATE_CELL_SIZE: 'UPDATE_CELL_SIZE',
-};
 
 const reducers = {
   [ActionType.SET_COLOR]: (state, { x, y, color }) => {
-    state.grid[x][y] = color;
+    if (x >= 0 && x < state.grid.length && y >= 0 && y < state.grid[0].length) {
+      state.grid[x][y] = color;
+    }
     return state;
   },
   [ActionType.SET_CANVAS_SIZE]: (state, { cellSize, cellNumberX, cellNumberY }) => ({
@@ -40,6 +54,14 @@ const reducers = {
     cellSize,
     canvasHeight: cellSize * state.cellNumberY,
     canvasWidth: cellSize * state.cellNumberX,
+  }),
+  [ActionType.MOVE_MOUSE]: (state, cursorPosition) => ({
+    ...state,
+    cursorPosition,
+  }),
+  [ActionType.UPDATE_BRUSH_SIZE]: (state, { brushSize }) => ({
+    ...state,
+    brushSize,
   })
 };
 
@@ -66,6 +88,7 @@ function createCanvas(getStateSnapshot, observeState) {
   const { canvasHeight, canvasWidth } = getStateSnapshot();
   canvas.width = canvasHeight;
   canvas.height = canvasWidth;
+  canvas.style.cursor = 'none'
   document.body.appendChild(canvas);
   const context = canvas.getContext("2d");
 
@@ -80,7 +103,7 @@ function createCanvas(getStateSnapshot, observeState) {
   };
 }
 
-function createMouseListeners(dispatchAction, getStateSnapshot) {
+function createMouseListeners(moveMouse, movePressedMouse, getStateSnapshot) {
   const mouseState = {
     pressed: false,
   }
@@ -88,25 +111,27 @@ function createMouseListeners(dispatchAction, getStateSnapshot) {
   return {
     onMouseDown: (event, canvas) => {
       const { top, left } = canvas.getBoundingClientRect();
-      const { canvasDrawColor, cellSize } = getStateSnapshot();
-      const cellPosition = {
+      const { cellSize } = getStateSnapshot();
+      movePressedMouse({
         x: Math.floor((event.x - left) / cellSize),
         y: Math.floor((event.y - top) / cellSize),
-      }
-      dispatchAction({ type: ActionType.SET_COLOR, payload: { x: cellPosition.x, y: cellPosition.y, color: canvasDrawColor } });
+      });
       mouseState.pressed = true;
     },
     onMouseMove: (event, canvas) => {
+      const { top, left } = canvas.getBoundingClientRect();
+      const { cellSize } = getStateSnapshot();
+      moveMouse({ 
+        x: (event.x - left),
+        y: (event.y - top),
+      });
       if (!mouseState.pressed) {
         return
       }
-      const { top, left } = canvas.getBoundingClientRect();
-      const { canvasDrawColor, cellSize } = getStateSnapshot();
-      const cellPosition = {
+      movePressedMouse({ 
         x: Math.floor((event.x - left) / cellSize),
         y: Math.floor((event.y - top) / cellSize),
-      }
-      dispatchAction({ type: ActionType.SET_COLOR, payload: { x: cellPosition.x, y: cellPosition.y, color: canvasDrawColor } });
+      });
     },
     onMouseUp: () => {
       mouseState.pressed = false;
@@ -116,6 +141,8 @@ function createMouseListeners(dispatchAction, getStateSnapshot) {
 
 function createImageUrlFromGrid(grid, cellNumberX, cellNumberY, cellSize) {
   const canvas = document.createElement("canvas");
+  canvas.width = cellNumberY * cellSize;
+  canvas.height = cellNumberX * cellSize;
   const context = canvas.getContext("2d");
   for (let i = 0; i < cellNumberX; i++) {
     for (let j = 0; j < cellNumberY; j++) {
@@ -174,6 +201,72 @@ function createCellSizeInput() {
   return inputEl;
 }
 
+function createBrushSizeInput(dispatchAction) {
+  const inputEl = document.createElement('input');
+  inputEl.type = 'range';
+  inputEl.min = 1;
+  inputEl.max = 7;
+  inputEl.step = 1;
+  inputEl.addEventListener('input', event =>
+    dispatchAction({ type: ActionType.UPDATE_BRUSH_SIZE, payload: { brushSize: Number(event.target.value) }})
+  )
+  const div = document.createElement('div');
+  div.append(inputEl);
+  document.body.append(div);
+
+  return inputEl;
+}
+
+function createMovePressedMouse(getStateSnapshot, drawPixel, drawCircle) {
+  return ({x, y}) => {
+    const { tool, brushSize } = getStateSnapshot();
+    if (tool === Tools.BRUSH) {
+      if (brushSize === 1) {
+        drawPixel({x, y})
+      } else {
+        drawCircle(x, y, brushSize - 1);
+      }
+    }
+  }
+}
+
+function createBresenhamCircleDraw(setColorInCell) {
+  function putPixels(xc, yc, x, y) {
+    setColorInCell({ x: xc+x, y: yc+y }); 
+    setColorInCell({ x: xc-x, y: yc+y }); 
+    setColorInCell({ x: xc+x, y: yc-y }); 
+    setColorInCell({ x: xc-x, y: yc-y }); 
+    setColorInCell({ x: xc+y, y: yc+x }); 
+    setColorInCell({ x: xc-y, y: yc+x }); 
+    setColorInCell({ x: xc+y, y: yc-x }); 
+    setColorInCell({ x: xc-y, y: yc-x }); 
+  }
+
+  function putAxiosPixels(xc, yc, r) {
+    setColorInCell({ x: xc + r, y: yc });
+    setColorInCell({ x: xc - r, y: yc });
+    setColorInCell({ x: xc, y: yc - r });
+    setColorInCell({ x: xc, y: yc + r });
+  }
+
+  return (xc, yc, r) => {
+    let x = 0;
+    let y = r;
+    let d = 3 - 2 * r;
+    putAxiosPixels(xc, yc, r)
+    while(y >= x) {
+      x++;
+      if (d > 0) {
+        y--;
+        d = d + 4 * (x - y) + 10;
+      } else {
+        d = d + 4 * x + 6
+      }
+      putPixels(xc, yc, x, y);
+    }
+  }
+}
+
 function drawGrid(context, getStateSnapshot) {
   const { grid, cellSize, cellNumberX, cellNumberY, canvasHeight, canvasWidth } = getStateSnapshot();
   for (let i = 0; i < cellNumberX; i++) {
@@ -197,6 +290,13 @@ function drawGrid(context, getStateSnapshot) {
   }
 }
 
+function drawBrush(context, getStateSnapshot) {
+  const { cursorPosition: { x, y }, brushSize, cellSize } = getStateSnapshot();
+  context.beginPath();
+  context.arc(x, y, brushSize * cellSize, 0, 2 * Math.PI);
+  context.stroke();
+}
+
 function clear(context, getStateSnapshot) {
   const state = getStateSnapshot();
   context.fillStyle = `#${state.canvasDefaultColor}`;
@@ -206,17 +306,28 @@ function clear(context, getStateSnapshot) {
 function animate(context, getStateSnapshot) {
   clear(context, getStateSnapshot);
   drawGrid(context, getStateSnapshot);
+  drawBrush(context, getStateSnapshot);
   requestAnimationFrame(() => animate(context, getStateSnapshot));
 }
 
 const { dispatchAction, observeState, getStateSnapshot } = createSate(defaultState, reducers);
 dispatchAction({ type: ActionType.SET_CANVAS_SIZE, payload: getStateSnapshot() });
 
+const setColorInCell = ({x, y}) => {
+  const { canvasDrawColor } = getStateSnapshot();
+  dispatchAction({ type: ActionType.SET_COLOR, payload: { x, y, color: canvasDrawColor } })
+}
+
+const moveMouse = ({x, y}) => dispatchAction({ type: ActionType.MOVE_MOUSE, payload: { x, y } })
+
 const { context, addListener } = createCanvas(getStateSnapshot, observeState);
-const { onMouseDown, onMouseMove, onMouseUp } = createMouseListeners(dispatchAction, getStateSnapshot);
+const drawCircle = createBresenhamCircleDraw(setColorInCell);
+const movePressedMouse = createMovePressedMouse(getStateSnapshot, setColorInCell, drawCircle);
+const { onMouseDown, onMouseMove, onMouseUp } = createMouseListeners(moveMouse, movePressedMouse, getStateSnapshot);
 const colorPicker = createColorPicker(dispatchAction);
 const saveButton = createSaveButton(getStateSnapshot);
 const cellSizeInput = createCellSizeInput(dispatchAction);
+const brushSizeInput = createBrushSizeInput(dispatchAction);
 
 addListener("mousedown", onMouseDown);
 addListener("mousemove", onMouseMove);
