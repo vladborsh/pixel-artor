@@ -1,4 +1,4 @@
-const defaultSpace = 30; 
+const defaultSpace = 10; 
 
 const Tools = {
   BRUSH: 'BRUSH',
@@ -11,6 +11,9 @@ const ActionType = {
   UPDATE_CELL_SIZE: 'UPDATE_CELL_SIZE',
   UPDATE_BRUSH_SIZE: 'UPDATE_BRUSH_SIZE',
   MOVE_MOUSE: 'MOVE_MOUSE',
+  PUSH_HISTORY: 'PUSH_HISTORY',
+  MOVE_BACK_IN_HISTORY: 'MOVE_BACK_IN_HISTORY',
+  MOVE_FORWARD_IN_HISTORY: 'MOVE_FORWARD_IN_HISTORY',
 };
 
 const defaultState = {
@@ -25,6 +28,8 @@ const defaultState = {
       () => 'ffffff'
     )
   ),
+  gridHistory: [],
+  historyPointer: 0,
   tool: Tools.BRUSH,
   brushSize: 1,
   cursorPosition: {
@@ -33,10 +38,20 @@ const defaultState = {
   }
 }
 
+function copy(arr) {
+  const newArr = [];
+
+  for (let row of arr) {
+    newArr.push([...row]);
+  }
+
+  return newArr;
+}
+
 const reducers = {
-  [ActionType.SET_COLOR]: (state, { x, y, color }) => {
+  [ActionType.SET_COLOR]: (state, { x, y }) => {
     if (x >= 0 && x < state.grid.length && y >= 0 && y < state.grid[0].length) {
-      state.grid[x][y] = color;
+      state.grid[x][y] = state.canvasDrawColor;
     }
     return state;
   },
@@ -62,7 +77,35 @@ const reducers = {
   [ActionType.UPDATE_BRUSH_SIZE]: (state, { brushSize }) => ({
     ...state,
     brushSize,
-  })
+  }),
+  [ActionType.PUSH_HISTORY]: (state, { grid }) => {
+    const historyPointer = state.historyPointer + 1;
+    const gridHistory = [ ...state.gridHistory.slice(0, historyPointer), copy(grid) ]
+
+    return {
+      ...state,
+      gridHistory,
+      historyPointer,
+    }
+  },
+  [ActionType.MOVE_BACK_IN_HISTORY]: (state) => {
+    const historyPointer = state.historyPointer > 0 ? state.historyPointer - 1 : state.historyPointer
+
+    return {
+      ...state,
+      historyPointer,
+      grid: copy(state.gridHistory[historyPointer]),
+    }
+  },
+  [ActionType.MOVE_FORWARD_IN_HISTORY]: (state) => {
+    const historyPointer = state.historyPointer < state.gridHistory.length - 1 ? state.historyPointer + 1 : state.historyPointer;
+
+    return {
+      ...state,
+      historyPointer,
+      grid: copy(state.gridHistory[historyPointer]),
+    }
+  },
 };
 
 function createSate(defaultState, reducers) {
@@ -100,13 +143,23 @@ function createCanvas(getStateSnapshot, observeState) {
   return {
     context,
     addListener: (event, handler) => canvas.addEventListener(event, event => handler(event, canvas)),
-  };
+  }; 
 }
 
-function createMouseListeners(moveMouse, movePressedMouse, getStateSnapshot) {
-  const mouseState = {
-    pressed: false,
-  }
+function createHotKeyListeners(dispatchAction) {
+  document.addEventListener('keydown', (event) => {
+    if (!event.shiftKey && event.metaKey && ['z'].includes(event.key.toLowerCase())) {
+      dispatchAction({ type: ActionType.MOVE_BACK_IN_HISTORY })
+    }
+    if (event.shiftKey && event.metaKey && ['z'].includes(event.key.toLowerCase())) {
+      dispatchAction({ type: ActionType.MOVE_FORWARD_IN_HISTORY })
+    }
+  });
+}
+
+function createMouseListeners(dispatchAction, movePressedMouse, getStateSnapshot) {
+  const mouseState = { pressed: false };
+  const moveMouse = ({x, y}) => dispatchAction({ type: ActionType.MOVE_MOUSE, payload: { x, y } });
 
   return {
     onMouseDown: (event, canvas) => {
@@ -135,6 +188,8 @@ function createMouseListeners(moveMouse, movePressedMouse, getStateSnapshot) {
     },
     onMouseUp: () => {
       mouseState.pressed = false;
+      const { grid } = getStateSnapshot();
+      dispatchAction({ type: ActionType.PUSH_HISTORY, payload: { grid } })
     }
   }
 }
@@ -217,12 +272,12 @@ function createBrushSizeInput(dispatchAction) {
   return inputEl;
 }
 
-function createMovePressedMouse(getStateSnapshot, drawPixel, drawCircle) {
+function createMovePressedMouse(getStateSnapshot, dispatchAction, drawCircle) {
   return ({x, y}) => {
     const { tool, brushSize } = getStateSnapshot();
     if (tool === Tools.BRUSH) {
       if (brushSize === 1) {
-        drawPixel({x, y})
+        dispatchAction({ type: ActionType.SET_COLOR, payload: { x, y } })
       } else {
         drawCircle(x, y, brushSize - 1);
       }
@@ -230,7 +285,9 @@ function createMovePressedMouse(getStateSnapshot, drawPixel, drawCircle) {
   }
 }
 
-function createBresenhamCircleDraw(setColorInCell) {
+function createBresenhamCircleDraw(dispatchAction) {
+  const setColorInCell = ({x, y}) => dispatchAction({ type: ActionType.SET_COLOR, payload: { x, y } })
+
   function putPixels(xc, yc, x, y) {
     setColorInCell({ x: xc+x, y: yc+y }); 
     setColorInCell({ x: xc-x, y: yc+y }); 
@@ -312,18 +369,17 @@ function animate(context, getStateSnapshot) {
 
 const { dispatchAction, observeState, getStateSnapshot } = createSate(defaultState, reducers);
 dispatchAction({ type: ActionType.SET_CANVAS_SIZE, payload: getStateSnapshot() });
-
-const setColorInCell = ({x, y}) => {
-  const { canvasDrawColor } = getStateSnapshot();
-  dispatchAction({ type: ActionType.SET_COLOR, payload: { x, y, color: canvasDrawColor } })
-}
-
-const moveMouse = ({x, y}) => dispatchAction({ type: ActionType.MOVE_MOUSE, payload: { x, y } })
+dispatchAction({ type: ActionType.PUSH_HISTORY, payload: getStateSnapshot() });
 
 const { context, addListener } = createCanvas(getStateSnapshot, observeState);
-const drawCircle = createBresenhamCircleDraw(setColorInCell);
-const movePressedMouse = createMovePressedMouse(getStateSnapshot, setColorInCell, drawCircle);
-const { onMouseDown, onMouseMove, onMouseUp } = createMouseListeners(moveMouse, movePressedMouse, getStateSnapshot);
+const drawCircle = createBresenhamCircleDraw(dispatchAction);
+const movePressedMouse = createMovePressedMouse(getStateSnapshot, dispatchAction, drawCircle);
+const { onMouseDown, onMouseMove, onMouseUp } = createMouseListeners(
+  dispatchAction,
+  movePressedMouse,
+  getStateSnapshot,
+);
+const hotKeys = createHotKeyListeners(dispatchAction);
 const colorPicker = createColorPicker(dispatchAction);
 const saveButton = createSaveButton(getStateSnapshot);
 const cellSizeInput = createCellSizeInput(dispatchAction);
