@@ -16,17 +16,22 @@ import { createBrushSizeInput } from "./ui/create-brush-size-input";
 import { createCellSizeInput } from "./ui/create-cell-size-inputs";
 import { createColorPicker } from "./ui/create-color-picker";
 import { createSaveButton } from "./ui/create-save-button";
+import { createBrushToolButton } from "./ui/create-brush-tool-button";
+import { createPipetToolButton } from "./ui/create-pipet-tool-button";
 
 
 function createMovePressedMouse(getStateSnapshot: () => StateInterface, dispatchAction: (actionType: Action) => void, drawCircle) {
   return ({x, y}) => {
-    const { tool, brushSize } = getStateSnapshot();
+    const { tool, brushSize, grid } = getStateSnapshot();
     if (tool === Tools.BRUSH) {
       if (brushSize === 1) {
         dispatchAction({ type: ActionType.SET_COLOR, payload: { x, y } })
       } else {
         drawCircle(x, y, brushSize - 1);
       }
+    }
+    if (tool === Tools.PIPET) {
+      dispatchAction({ type: ActionType.UPDATE_DRAW_COLOR, payload: { color: grid[x][y] }});
     }
   }
 }
@@ -38,12 +43,12 @@ function animate(context: CanvasRenderingContext2D, getStateSnapshot: () => Stat
   requestAnimationFrame(() => animate(context, getStateSnapshot));
 }
 
-const { dispatchAction, observeState, getStateSnapshot } = createSate<StateInterface>(defaultState, reducers);
+const { dispatchAction, observeStateProp, getStateSnapshot } = createSate<StateInterface>(defaultState, reducers);
 
 dispatchAction({ type: ActionType.SET_CANVAS_SIZE, payload: getStateSnapshot() });
 dispatchAction({ type: ActionType.PUSH_HISTORY, payload: getStateSnapshot() });
 
-const { context, addListener } = createCanvas(getStateSnapshot, observeState);
+const { context, addListener } = createCanvas(getStateSnapshot, observeStateProp);
 const drawCircle = createBresenhamCircleDraw(dispatchAction);
 const movePressedMouse = createMovePressedMouse(getStateSnapshot, dispatchAction, drawCircle);
 const { onMouseDown, onMouseMove, onMouseUp } = createMouseListeners(
@@ -53,10 +58,12 @@ const { onMouseDown, onMouseMove, onMouseUp } = createMouseListeners(
 );
 
 createHotKeyListeners(dispatchAction);
-createColorPicker(dispatchAction);
+createColorPicker(dispatchAction, observeStateProp);
 createSaveButton(getStateSnapshot);
 createCellSizeInput(dispatchAction);
-createBrushSizeInput(dispatchAction);
+createBrushSizeInput(dispatchAction, observeStateProp);
+createBrushToolButton(dispatchAction);
+createPipetToolButton(dispatchAction);
 
 addListener("mousedown", onMouseDown);
 addListener("mousemove", onMouseMove);

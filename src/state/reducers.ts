@@ -35,6 +35,10 @@ export const reducers: Record<ActionType, (state: StateInterface, payload: any) 
     ...state,
     cursorPosition,
   }),
+  [ActionType.UPDATE_TOOL]: (state, { tool }) => ({
+    ...state,
+    tool,
+  }),
   // TODO
   [ActionType.MOVE_PRESSED_MOUSE]: (state, {x, y}) => state,
   [ActionType.UPDATE_BRUSH_SIZE]: (state, { brushSize }) => ({
