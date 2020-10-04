@@ -2,7 +2,7 @@ import { ActionType } from "../enums/actions.enum";
 import { Action } from "../interfaces/action.interface";
 import { StateListener } from "./state-listener.type";
 
-export function createSate<T>(defaultState: T, reducers: Record<ActionType, (state: T, payload: any) => T>) {
+export function createSate<T>(defaultState: T, reducers: Record<ActionType, (state: T, payload: any) => T>, middleware?: (state: T) => void) {
   let state = defaultState;
   let prevState = null;
   const listeners: StateListener<T>[] = [];
@@ -16,10 +16,13 @@ export function createSate<T>(defaultState: T, reducers: Record<ActionType, (sta
     dispatchAction(actionType: Action): void {
       prevState = state;
       state = reducers[actionType.type](state, actionType.payload);
+      if (middleware) {
+        middleware(state)
+      }
       listeners.forEach(callback => callback(state));
       getChangedProps(state, prevState)
-      .filter(propKey => !!propListeners[propKey])
-      .forEach(propKey => propListeners[propKey].forEach(callback => callback(state)))
+        .filter(propKey => !!propListeners[propKey])
+        .forEach(propKey => propListeners[propKey].forEach(callback => callback(state)))
     },
     observeState(listener: StateListener<T>): void {
       listeners.push(listener);
